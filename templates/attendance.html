@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+
+{% block title %}Attendance Overview{% endblock %}
+
+{% block content %}
+<h2>Attendance Overview</h2>
+
+{% if stats %}
+<div class="stats-grid">
+    <div class="stat-card">
+        <h3>{{ stats.total_students }}</h3>
+        <p>Total Students</p>
+    </div>
+    <div class="stat-card">
+        <h3>{{ stats.total_days }}</h3>
+        <p>Days Recorded</p>
+    </div>
+    <div class="stat-card">
+        <h3>{{ stats.total_present }}</h3>
+        <p>Total Present</p>
+    </div>
+    <div class="stat-card">
+        <h3>{{ stats.total_records }}</h3>
+        <p>Total Records</p>
+    </div>
+</div>
+{% endif %}
+
+<div class="text-center mt-30">
+    <a href="/mark_attendance" class="btn btn-success" style="font-size: 15px; padding: 12px 28px; margin: 6px;">
+        📝 Mark Today's Attendance
+    </a>
+    <a href="/attendance_dates" class="btn btn-primary" style="font-size: 15px; padding: 12px 28px; margin: 6px;">
+        📅 View by Date
+    </a>
+    <a href="/report" class="btn btn-warning" style="font-size: 15px; padding: 12px 28px; margin: 6px;">
+        📊 View Reports
+    </a>
+</div>
+{% endblock %}

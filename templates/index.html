@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+
+{% block title %}Student List{% endblock %}
+
+{% block content %}
+<h2>Student List</h2>
+
+{% if students %}
+    <p style="text-align: left;">Total Students: <strong>{{ students|length }}</strong></p>
+    
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Name</th>
+                <th>Age</th>
+                <th>Course</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for student in students %}
+            <tr>
+                <td>{{ student.id }}</td>
+                <td>{{ student.name }}</td>
+                <td>{{ student.age }}</td>
+                <td>{{ student.course }}</td>
+                <td>
+                    <a href="/edit/{{ student.id }}" class="btn btn-warning" style="margin-right: 8px;">Edit</a>
+                    <a href="/delete/{{ student.id }}" 
+                       class="btn btn-danger"
+                       onclick="return confirm('Are you sure you want to delete {{ student.name }}?')">
+                        Delete
+                    </a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+{% else %}
+    <div class="empty-state">
+        <p>No students found. <a href="/add">Add your first student</a></p>
+    </div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block title %}Attendance Report{% endblock %}
+
+{% block content %}
+<h2>Attendance Report</h2>
+
+{% if report %}
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Name</th>
+                <th>Course</th>
+                <th>Total Days</th>
+                <th>Present</th>
+                <th>Absent</th>
+                <th>Attendance %</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for student in report %}
+            <tr>
+                <td>{{ student.id }}</td>
+                <td>{{ student.name }}</td>
+                <td>{{ student.course }}</td>
+                <td>{{ student.total_days }}</td>
+                <td style="color: #43a047; font-weight: 600;">{{ student.present_days }}</td>
+                <td style="color: #e53935; font-weight: 600;">{{ student.absent_days }}</td>
+                <td>
+                    {% if student.attendance_percentage >= 75 %}
+                        <span style="color: #43a047; font-weight: 600;">{{ student.attendance_percentage }}%</span>
+                    {% elif student.attendance_percentage >= 50 %}
+                        <span style="color: #fb8c00; font-weight: 600;">{{ student.attendance_percentage }}%</span>
+                    {% else %}
+                        <span style="color: #e53935; font-weight: 600;">{{ student.attendance_percentage }}%</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+{% else %}
+    <div class="empty-state">
+        <p>No attendance records found. <a href="/mark_attendance">Mark attendance first</a></p>
+    </div>
+{% endif %}
+
+<div class="mt-20">
+    <a href="/attendance" class="btn btn-primary">Back to Attendance</a>
+</div>
+{% endblock %}

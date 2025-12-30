@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+
+{% block title %}Edit Student{% endblock %}
+
+{% block content %}
+<style>
+    .form-container {
+        max-width: 700px;
+        margin: 0 auto;
+    }
+    
+    .name-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 12px;
+    }
+    
+    @media (max-width: 600px) {
+        .name-row {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+
+<div class="form-container">
+    <h2>Edit Student</h2>
+
+    {% set name_parts = student.name.split() %}
+    {% set first = name_parts[0] if name_parts|length > 0 else '' %}
+    {% set last = name_parts[-1] if name_parts|length > 1 else '' %}
+    {% set middle = ' '.join(name_parts[1:-1]) if name_parts|length > 2 else '' %}
+
+    <form method="POST">
+        <div class="form-group">
+            <label>Full Name</label>
+            <div class="name-row">
+                <input type="text" name="first_name" placeholder="First Name *" value="{{ first }}" required>
+                <input type="text" name="middle_name" placeholder="Middle Name" value="{{ middle }}">
+                <input type="text" name="last_name" placeholder="Last Name *" value="{{ last }}" required>
+            </div>
+        </div>
+        
+        <div class="form-group">
+            <label for="age">Age *</label>
+            <input type="number" id="age" name="age" value="{{ student.age }}" min="1" max="150" required>
+        </div>
+        
+        <div class="form-group">
+            <label for="course">Course *</label>
+            <input type="text" id="course" name="course" value="{{ student.course }}" required>
+        </div>
+        
+        <button type="submit" class="btn btn-success">Update Student</button>
+        <a href="/" class="btn btn-primary">Cancel</a>
+    </form>
+</div>
+{% endblock %}

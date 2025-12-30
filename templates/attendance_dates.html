@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+
+{% block title %}Attendance by Date{% endblock %}
+
+{% block content %}
+<h2>Attendance by Date</h2>
+
+{% if dates %}
+    <table>
+        <thead>
+            <tr>
+                <th>Date</th>
+                <th>Total Students</th>
+                <th>Present</th>
+                <th>Absent</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for date in dates %}
+            <tr>
+                <td>{{ date.date }}</td>
+                <td>{{ date.total }}</td>
+                <td style="color: #43a047; font-weight: 600;">{{ date.present }}</td>
+                <td style="color: #e53935; font-weight: 600;">{{ date.total - date.present }}</td>
+                <td>
+                    <a href="/view_attendance/{{ date.date }}" class="btn btn-primary">View Details</a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+{% else %}
+    <div class="empty-state">
+        <p>No attendance records found. <a href="/mark_attendance">Mark attendance first</a></p>
+    </div>
+{% endif %}
+
+<div class="mt-20">
+    <a href="/attendance" class="btn btn-primary">Back to Attendance</a>
+</div>
+{% endblock %}

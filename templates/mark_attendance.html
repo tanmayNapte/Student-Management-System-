@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+
+{% block title %}Mark Attendance{% endblock %}
+
+{% block content %}
+<h2>Mark Attendance</h2>
+
+{% if students %}
+<form method="POST">
+    <div class="form-group">
+        <label for="date">Date *</label>
+        <input type="date" id="date" name="date" value="{{ today }}" required>
+    </div>
+    
+    <div style="margin: 20px 0; padding: 12px; background-color: #f1f3f6; border-radius: 6px;">
+        <button type="button" class="btn btn-success" onclick="markAll('present')" style="margin-right: 10px;">
+            Mark All Present
+        </button>
+        <button type="button" class="btn btn-danger" onclick="markAll('absent')">
+            Mark All Absent
+        </button>
+    </div>
+    
+    <h3>Student Attendance</h3>
+    
+    <table>
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Course</th>
+                <th>Status</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for student in students %}
+            <tr>
+                <td>{{ student.name }}</td>
+                <td>{{ student.course }}</td>
+                <td>
+                    <select name="student_{{ student.id }}" required>
+                        <option value="present">Present</option>
+                        <option value="absent">Absent</option>
+                    </select>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    
+    <div class="mt-20">
+        <button type="submit" class="btn btn-success">Save Attendance</button>
+        <a href="/attendance" class="btn btn-primary">Cancel</a>
+    </div>
+</form>
+
+<script>
+    function markAll(status) {
+        const selects = document.querySelectorAll('select[name^="student_"]');
+        selects.forEach(select => select.value = status);
+    }
+</script>
+{% else %}
+    <div class="empty-state">
+        <p>No students found. <a href="/add">Add students first</a></p>
+    </div>
+{% endif %}
+{% endblock %}
