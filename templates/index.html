@@ -11,7 +11,7 @@
     <table>
         <thead>
             <tr>
-                <th>ID</th>
+                <th>Sr. No</th>
                 <th>Name</th>
                 <th>Age</th>
                 <th>Course</th>
@@ -21,7 +21,7 @@
         <tbody>
             {% for student in students %}
             <tr>
-                <td>{{ student.id }}</td>
+                <td>{{ loop.index }}</td>
                 <td>{{ student.name }}</td>
                 <td>{{ student.age }}</td>
                 <td>{{ student.course }}</td>

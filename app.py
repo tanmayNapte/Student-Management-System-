@@ -1,6 +1,7 @@
-from flask import Flask, render_template, request, redirect, flash
+from flask import Flask, render_template, request, redirect, session, jsonify, flash
 import sqlite3
 from datetime import date
+from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
 app.secret_key = 'your-secret-key-here-change-this'  # Required for flash messages
@@ -32,20 +33,71 @@ def init_db():
                 FOREIGN KEY(student_id) REFERENCES students(id) ON DELETE CASCADE
             )"""
         )
+        con.execute(
+            """CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL
+            )"""
+        )
+
         con.commit()
 
-# Call init_db at startup
 init_db()
+
+def is_logged_in():
+    return "user_id" in session
+
 
 @app.route("/")
 def show_student():
+    # If user is NOT logged in, show login page
+    if not is_logged_in():
+        return render_template("login.html")
+
+    # If logged in, show students
     try:
         with get_db() as con:
-            students = con.execute("SELECT * FROM students ORDER BY name").fetchall()
+            students = con.execute(
+                "SELECT * FROM students ORDER BY name"
+            ).fetchall()
+
         return render_template("index.html", students=students)
+
     except sqlite3.Error as e:
         flash(f"Database error: {e}", "error")
         return render_template("index.html", students=[])
+
+@app.route("/login", methods=["POST"])
+def login():
+    username = request.form.get("username")
+    password = request.form.get("password")
+
+    if not username or not password:
+        flash("Username and password required", "error")
+        return redirect("/")
+
+    try:
+        with get_db() as con:
+            user = con.execute(
+                "SELECT * FROM users WHERE username = ?",
+                (username,)
+            ).fetchone()
+
+        if not user or not check_password_hash(user["password"], password):
+            flash("Invalid credentials", "error")
+            return redirect("/")
+
+        # Login success → store session
+        session["user_id"] = user["id"]
+        session["username"] = user["username"]
+
+        return redirect("/")  # now dashboard opens
+
+    except sqlite3.Error as e:
+        flash(str(e), "error")
+        return redirect("/")
+
 
 @app.route("/add", methods=["GET", "POST"])
 def add_student():
@@ -98,7 +150,6 @@ def edit_student(id):
             age = request.form.get("age", "").strip()
             course = request.form.get("course", "").strip()
             
-            # Validation
             if not first or not last:
                 flash("First name and last name are required", "error")
                 return redirect(f"/edit/{id}")
@@ -281,6 +332,13 @@ def attendance_dates():
     except sqlite3.Error as e:
         flash(f"Database error: {e}", "error")
         return render_template("attendance_dates.html", dates=[])
+    
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect("/")
+
+
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=True, use_reloader=False)
