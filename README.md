@@ -3,6 +3,7 @@
 A web-based application for managing student records and tracking daily attendance.
 
 ## 📸 Screenshots
+<img width="612" height="720" alt="image" src="https://github.com/user-attachments/assets/b37a7b1d-dd6b-4eb6-9a2b-ae77e12f9b7c" />
 <img width="1132" height="748" alt="image" src="https://github.com/user-attachments/assets/8c667997-13e6-4048-a559-0126d6efdd05" />
 <img width="1122" height="816" alt="image" src="https://github.com/user-attachments/assets/5408844c-0c87-4ad7-ac4b-6dfd283a701c" />
 <img width="1122" height="887" alt="image" src="https://github.com/user-attachments/assets/44e51d5f-cff2-4349-8ffe-5462f9a2c65d" />
