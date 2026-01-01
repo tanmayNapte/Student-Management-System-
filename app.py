@@ -59,6 +59,40 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '').strip()
+
+        if not username or not password:
+            flash("Username and password are required.", "error")
+            return render_template('register.html')
+
+        hashed_password = generate_password_hash(password)
+
+        try:
+            with get_db() as con:
+                con.execute('''
+                            INSERT INTO users (username, password)
+                            VALUES (?, ?)
+                            ''', (username, hashed_password))
+                con.commit()
+
+            flash("Account created successfully! Please log in.", "success")
+            return redirect("/")
+
+        except sqlite3.IntegrityError:
+            flash("That username is already taken. Please choose another.", "error")
+            return render_template('register.html')
+        except sqlite3.Error as e:
+            flash(f"Database error: {e}", "error")
+            return render_template('register.html')
+
+    return render_template('register.html')
+
+
 @app.route("/")
 def show_student():
     if not is_logged_in():
