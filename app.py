@@ -1,389 +1,411 @@
-from flask import Flask, render_template, request, redirect, session, jsonify, flash
-import sqlite3
-from datetime import date
+from flask import Flask, render_template, request, redirect, session, flash
+from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
+from datetime import date
+from dotenv import load_dotenv
+import os
+
+# -------------------- APP SETUP --------------------
+
+load_dotenv()
 
 app = Flask(__name__)
-app.secret_key = b'\xe0\xac\xc1E\xc5\x96V2}\xf9\xbb\xed\xbd\xe4\xbe1\xf3\x197\x835&\x8e\xfe'  # Required for flash messages
+app.secret_key = os.getenv("SECRET_KEY", "fallback-secret-key-change-in-production")
 
-# Connect to database with row factory
-def get_db():
-    con = sqlite3.connect("students1.db")
-    con.row_factory = sqlite3.Row  # Access columns by name
-    return con
+# Handle both DATABASE_URL formats (Render uses postgresql://)
+database_url = os.getenv("DATABASE_URL")
+if database_url and database_url.startswith("postgres://"):
+    database_url = database_url.replace("postgres://", "postgresql://", 1)
 
-# Initialize database tables
-def init_db():
-    with get_db() as con:
-        con.execute(
-            """CREATE TABLE IF NOT EXISTS students (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL,
-                age INTEGER NOT NULL,
-                course TEXT NOT NULL
-            )"""
-        )
-        con.execute(
-            """CREATE TABLE IF NOT EXISTS attendance (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                student_id INTEGER NOT NULL,
-                date TEXT NOT NULL,
-                status TEXT CHECK(status IN ('present','absent')) NOT NULL,
-                UNIQUE(student_id, date),
-                FOREIGN KEY(student_id) REFERENCES students(id) ON DELETE CASCADE
-            )"""
-        )
-        con.execute(
-            """CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE NOT NULL,
-            password TEXT NOT NULL
-            )"""
-        )
+app.config["SQLALCHEMY_DATABASE_URI"] = database_url or "sqlite:///students.db"
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
-        con.commit()
+db = SQLAlchemy(app)
 
-init_db()
+# -------------------- MODELS --------------------
+
+class User(db.Model):
+    __tablename__ = "users"
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(100), unique=True, nullable=False)
+    password = db.Column(db.String(255), nullable=False)
+
+
+class Student(db.Model):
+    __tablename__ = "students"
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False)
+    age = db.Column(db.Integer, nullable=False)
+    course = db.Column(db.String(100), nullable=False)
+
+    attendance = db.relationship(
+        "Attendance",
+        backref="student",
+        cascade="all, delete",
+        lazy=True
+    )
+
+
+class Attendance(db.Model):
+    __tablename__ = "attendance"
+    id = db.Column(db.Integer, primary_key=True)
+    student_id = db.Column(db.Integer, db.ForeignKey("students.id"), nullable=False)
+    date = db.Column(db.String(20), nullable=False)
+    status = db.Column(db.String(10), nullable=False)
+
+    __table_args__ = (
+        db.UniqueConstraint("student_id", "date", name="unique_student_date"),
+    )
+
+# -------------------- INIT --------------------
+
+with app.app_context():
+    db.create_all()
+
+# -------------------- AUTH HELPERS --------------------
 
 def is_logged_in():
     return "user_id" in session
 
-# Decorator to protect routes
+
 def login_required(f):
     @wraps(f)
-    def decorated_function(*args, **kwargs):
+    def decorated(*args, **kwargs):
         if not is_logged_in():
             flash("Please log in to access this page.", "error")
             return redirect("/")
         return f(*args, **kwargs)
-    return decorated_function
+    return decorated
 
+# -------------------- AUTH ROUTES --------------------
 
-@app.route('/register', methods=['GET', 'POST'])
+@app.route("/register", methods=["GET", "POST"])
 def register():
-    if request.method == 'POST':
-        username = request.form.get('username', '').strip()
-        password = request.form.get('password', '').strip()
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "").strip()
 
         if not username or not password:
             flash("Username and password are required.", "error")
-            return render_template('register.html')
+            return render_template("register.html")
 
-        hashed_password = generate_password_hash(password)
+        hashed = generate_password_hash(password)
 
         try:
-            with get_db() as con:
-                con.execute('''
-                            INSERT INTO users (username, password)
-                            VALUES (?, ?)
-                            ''', (username, hashed_password))
-                con.commit()
-
+            user = User(username=username, password=hashed)
+            db.session.add(user)
+            db.session.commit()
             flash("Account created successfully! Please log in.", "success")
             return redirect("/")
+        except Exception as e:
+            db.session.rollback()
+            flash("Username already exists.", "error")
 
-        except sqlite3.IntegrityError:
-            flash("That username is already taken. Please choose another.", "error")
-            return render_template('register.html')
-        except sqlite3.Error as e:
-            flash(f"Database error: {e}", "error")
-            return render_template('register.html')
-
-    return render_template('register.html')
+    return render_template("register.html")
 
 
-@app.route("/")
-def show_student():
-    if not is_logged_in():
-        return render_template("login.html")
-
-    try:
-        with get_db() as con:
-            students = con.execute(
-                "SELECT * FROM students ORDER BY name"
-            ).fetchall()
-
-        return render_template("index.html", students=students)
-
-    except sqlite3.Error as e:
-        flash(f"Database error: {e}", "error")
-        return render_template("index.html", students=[])
-
-@app.route("/login", methods=["POST"])
+@app.route("/", methods=["GET", "POST"])
 def login():
-    username = request.form.get("username")
-    password = request.form.get("password")
+    # If already logged in, redirect to students page
+    if is_logged_in():
+        return redirect("/students")
+    
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "").strip()
 
-    if not username or not password:
-        flash("Username and password required", "error")
-        return redirect("/")
-
-    try:
-        with get_db() as con:
-            user = con.execute(
-                "SELECT * FROM users WHERE username = ?",
-                (username,)
-            ).fetchone()
-
-        if not user or not check_password_hash(user["password"], password):
-            flash("Invalid credentials", "error")
+        if not username or not password:
+            flash("Username and password required.", "error")
             return redirect("/")
 
-        session["user_id"] = user["id"]
-        session["username"] = user["username"]
+        try:
+            user = User.query.filter_by(username=username).first()
 
-        return redirect("/")
+            if not user or not check_password_hash(user.password, password):
+                flash("Invalid credentials.", "error")
+                return redirect("/")
 
-    except sqlite3.Error as e:
-        flash(str(e), "error")
-        return redirect("/")
+            session["user_id"] = user.id
+            session["username"] = user.username
+            return redirect("/students")
+        except Exception as e:
+            flash("Database error. Please try again.", "error")
+            return redirect("/")
+
+    return render_template("login.html")
+
+# -------------------- STUDENTS --------------------
+
+@app.route("/students")
+@login_required
+def show_students():
+    try:
+        students = Student.query.order_by(Student.name).all()
+        return render_template("index.html", students=students)
+    except Exception as e:
+        flash("Error loading students.", "error")
+        return render_template("index.html", students=[])
 
 
 @app.route("/add", methods=["GET", "POST"])
 @login_required
 def add_student():
     if request.method == "POST":
-        try:
-            first = request.form.get("first_name", "").strip()
-            middle = request.form.get("middle_name", "").strip()
-            last = request.form.get("last_name", "").strip()
-            age = request.form.get("age", "").strip()
-            course = request.form.get("course", "").strip()
+        first = request.form.get("first_name", "").strip()
+        middle = request.form.get("middle_name", "").strip()
+        last = request.form.get("last_name", "").strip()
+        age = request.form.get("age", "").strip()
+        course = request.form.get("course", "").strip()
 
-            if not first or not last:
-                flash("First name and last name are required", "error")
-                return render_template("add.html")
-
-            if not age.isdigit() or int(age) < 1 or int(age) > 150:
-                flash("Please enter a valid age (1-150)", "error")
-                return render_template("add.html")
-
-            if not course:
-                flash("Course is required", "error")
-                return render_template("add.html")
-
-            full_name = " ".join(part for part in [first, middle, last] if part)
-
-            with get_db() as con:
-                con.execute(
-                    "INSERT INTO students (name, age, course) VALUES (?, ?, ?)",
-                    (full_name, int(age), course)
-                )
-                con.commit()
-
-            flash("Student added successfully!", "success")
-            return redirect("/")
-
-        except sqlite3.Error as e:
-            flash(f"Database error: {e}", "error")
+        if not first or not last:
+            flash("First name and last name are required.", "error")
             return render_template("add.html")
 
+        if not age.isdigit() or int(age) < 1 or int(age) > 150:
+            flash("Please enter a valid age (1-150).", "error")
+            return render_template("add.html")
+
+        if not course:
+            flash("Course is required.", "error")
+            return render_template("add.html")
+
+        full_name = " ".join(x for x in [first, middle, last] if x)
+
+        try:
+            student = Student(name=full_name, age=int(age), course=course)
+            db.session.add(student)
+            db.session.commit()
+            flash("Student added successfully!", "success")
+            return redirect("/students")
+        except Exception as e:
+            db.session.rollback()
+            flash("Error adding student.", "error")
+
     return render_template("add.html")
+
 
 @app.route("/edit/<int:id>", methods=["GET", "POST"])
 @login_required
 def edit_student(id):
+    try:
+        student = Student.query.get_or_404(id)
+    except:
+        flash("Student not found.", "error")
+        return redirect("/students")
+
     if request.method == "POST":
-        try:
-            first = request.form.get("first_name", "").strip()
-            middle = request.form.get("middle_name", "").strip()
-            last = request.form.get("last_name", "").strip()
-            age = request.form.get("age", "").strip()
-            course = request.form.get("course", "").strip()
+        first = request.form.get("first_name", "").strip()
+        middle = request.form.get("middle_name", "").strip()
+        last = request.form.get("last_name", "").strip()
+        age = request.form.get("age", "").strip()
+        course = request.form.get("course", "").strip()
 
-            if not first or not last:
-                flash("First name and last name are required", "error")
-                return redirect(f"/edit/{id}")
-
-            if not age.isdigit() or int(age) < 1 or int(age) > 150:
-                flash("Please enter a valid age (1-150)", "error")
-                return redirect(f"/edit/{id}")
-
-            if not course:
-                flash("Course is required", "error")
-                return redirect(f"/edit/{id}")
-
-            full_name = " ".join(part for part in [first, middle, last] if part)
-
-            with get_db() as con:
-                con.execute(
-                    "UPDATE students SET name = ?, age = ?, course = ? WHERE id = ?",
-                    (full_name, int(age), course, id)
-                )
-                con.commit()
-
-            flash("Student updated successfully!", "success")
-            return redirect("/")
-
-        except sqlite3.Error as e:
-            flash(f"Database error: {e}", "error")
+        if not first or not last:
+            flash("First name and last name are required.", "error")
             return redirect(f"/edit/{id}")
 
-    try:
-        with get_db() as con:
-            student = con.execute(
-                "SELECT * FROM students WHERE id = ?", (id,)
-            ).fetchone()
+        if not age.isdigit() or int(age) < 1 or int(age) > 150:
+            flash("Please enter a valid age (1-150).", "error")
+            return redirect(f"/edit/{id}")
 
-        if not student:
-            flash("Student not found", "error")
-            return redirect("/")
+        if not course:
+            flash("Course is required.", "error")
+            return redirect(f"/edit/{id}")
 
-        return render_template("edit.html", student=student)
+        try:
+            student.name = " ".join(x for x in [first, middle, last] if x)
+            student.age = int(age)
+            student.course = course
+            db.session.commit()
+            flash("Student updated successfully!", "success")
+            return redirect("/students")
+        except Exception as e:
+            db.session.rollback()
+            flash("Error updating student.", "error")
+            return redirect(f"/edit/{id}")
 
-    except sqlite3.Error as e:
-        flash(f"Database error: {e}", "error")
-        return redirect("/")
+    return render_template("edit.html", student=student)
+
 
 @app.route("/delete/<int:id>")
 @login_required
 def delete_student(id):
     try:
-        with get_db() as con:
-            student = con.execute("SELECT name FROM students WHERE id = ?", (id,)).fetchone()
-            if not student:
-                flash("Student not found", "error")
-                return redirect("/")
+        student = Student.query.get_or_404(id)
+        db.session.delete(student)
+        db.session.commit()
+        flash("Student deleted successfully!", "success")
+    except Exception as e:
+        db.session.rollback()
+        flash("Error deleting student.", "error")
+    
+    return redirect("/students")
 
-            con.execute("DELETE FROM attendance WHERE student_id = ?", (id,))
-            con.execute("DELETE FROM students WHERE id = ?", (id,))
-            con.commit()
-
-        flash(f"Student deleted successfully!", "success")
-    except sqlite3.Error as e:
-        flash(f"Database error: {e}", "error")
-
-    return redirect("/")
+# -------------------- ATTENDANCE --------------------
 
 @app.route("/attendance")
 @login_required
 def attendance_home():
     try:
-        with get_db() as con:
-            stats = con.execute("""
-                SELECT
-                    (SELECT COUNT(*) FROM students) AS total_students,
-                    COUNT(DISTINCT a.date) AS total_days,
-                    SUM(CASE WHEN a.status = 'present' THEN 1 ELSE 0 END) AS total_present,
-                    COUNT(a.id) AS total_records
-                FROM attendance a
-            """).fetchone()
+        total_students = Student.query.count()
+        records = Attendance.query.all()
+
+        total_present = sum(1 for r in records if r.status == "present")
+        total_days = len(set(r.date for r in records))
+
+        stats = {
+            "total_students": total_students,
+            "total_days": total_days,
+            "total_present": total_present,
+            "total_records": len(records)
+        }
 
         return render_template("attendance.html", stats=stats, today=date.today().isoformat())
-    except sqlite3.Error as e:
-        flash(f"Database error: {e}", "error")
+    except Exception as e:
+        flash("Error loading attendance data.", "error")
         return render_template("attendance.html", stats=None, today=date.today().isoformat())
+
 
 @app.route("/mark_attendance", methods=["GET", "POST"])
 @login_required
 def mark_attendance():
     if request.method == "POST":
+        att_date = request.form.get("date", "").strip()
+
+        if not att_date:
+            flash("Date is required.", "error")
+            return redirect("/mark_attendance")
+
         try:
-            attendance_date = request.form.get("date", "").strip()
+            students = Student.query.all()
 
-            if not attendance_date:
-                flash("Date is required", "error")
-                return redirect("/mark_attendance")
+            for s in students:
+                status = request.form.get(f"student_{s.id}", "absent")
 
-            with get_db() as con:
-                students = con.execute("SELECT id FROM students").fetchall()
+                record = Attendance.query.filter_by(
+                    student_id=s.id,
+                    date=att_date
+                ).first()
 
-                for student in students:
-                    student_id = student["id"]
-                    status = request.form.get(f"student_{student_id}", "absent")
+                if record:
+                    record.status = status
+                else:
+                    db.session.add(
+                        Attendance(
+                            student_id=s.id,
+                            date=att_date,
+                            status=status
+                        )
+                    )
 
-                    con.execute("""
-                        INSERT OR REPLACE INTO attendance 
-                        (student_id, date, status) VALUES (?, ?, ?)
-                    """, (student_id, attendance_date, status))
-
-                con.commit()
-
-            flash(f"Attendance marked for {attendance_date}", "success")
+            db.session.commit()
+            flash(f"Attendance marked for {att_date}", "success")
             return redirect("/attendance")
-
-        except sqlite3.Error as e:
-            flash(f"Database error: {e}", "error")
+        except Exception as e:
+            db.session.rollback()
+            flash("Error marking attendance.", "error")
             return redirect("/mark_attendance")
 
     try:
-        with get_db() as con:
-            students = con.execute("SELECT * FROM students ORDER BY name").fetchall()
-
+        students = Student.query.order_by(Student.name).all()
         return render_template("mark_attendance.html", students=students, today=date.today().isoformat())
-    except sqlite3.Error as e:
-        flash(f"Database error: {e}", "error")
+    except Exception as e:
+        flash("Error loading students.", "error")
         return render_template("mark_attendance.html", students=[], today=date.today().isoformat())
+
 
 @app.route("/view_attendance/<date_str>")
 @login_required
 def view_attendance(date_str):
     try:
-        with get_db() as con:
-            records = con.execute("""
-                SELECT s.id, s.name, s.course, 
-                       COALESCE(a.status, 'not marked') as status
-                FROM students s
-                LEFT JOIN attendance a ON s.id = a.student_id AND a.date = ?
-                ORDER BY s.name
-            """, (date_str,)).fetchall()
+        students = Student.query.order_by(Student.name).all()
+        data = []
 
-        return render_template("view_attendance.html", records=records, date=date_str)
-    except sqlite3.Error as e:
-        flash(f"Database error: {e}", "error")
+        for s in students:
+            rec = Attendance.query.filter_by(student_id=s.id, date=date_str).first()
+            data.append({
+                "id": s.id,
+                "name": s.name,
+                "course": s.course,
+                "status": rec.status if rec else "not marked"
+            })
+
+        return render_template("view_attendance.html", records=data, date=date_str)
+    except Exception as e:
+        flash("Error loading attendance.", "error")
         return redirect("/attendance")
 
-@app.route("/report")
-@login_required
-def report():
-    try:
-        with get_db() as con:
-            report_data = con.execute("""
-                SELECT s.id, s.name, s.course,
-                       COUNT(a.id) AS total_days,
-                       SUM(CASE WHEN a.status = 'present' THEN 1 ELSE 0 END) AS present_days,
-                       SUM(CASE WHEN a.status = 'absent' THEN 1 ELSE 0 END) AS absent_days,
-                       CASE 
-                           WHEN COUNT(a.id) > 0 
-                           THEN ROUND(SUM(CASE WHEN a.status = 'present' THEN 1 ELSE 0 END) * 100.0 / COUNT(a.id), 2)
-                           ELSE 0 
-                       END AS attendance_percentage
-                FROM students s
-                LEFT JOIN attendance a ON s.id = a.student_id
-                GROUP BY s.id
-                ORDER BY s.name
-            """).fetchall()
-
-        return render_template("report.html", report=report_data)
-    except sqlite3.Error as e:
-        flash(f"Database error: {e}", "error")
-        return render_template("report.html", report=[])
 
 @app.route("/attendance_dates")
 @login_required
 def attendance_dates():
     try:
-        with get_db() as con:
-            dates = con.execute("""
-                SELECT DISTINCT date, 
-                       COUNT(*) as total,
-                       SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END) as present
-                FROM attendance
-                GROUP BY date
-                ORDER BY date DESC
-            """).fetchall()
-
+        # Get all unique dates with their statistics
+        dates_dict = {}
+        records = Attendance.query.all()
+        
+        for record in records:
+            if record.date not in dates_dict:
+                dates_dict[record.date] = {"total": 0, "present": 0}
+            dates_dict[record.date]["total"] += 1
+            if record.status == "present":
+                dates_dict[record.date]["present"] += 1
+        
+        # Convert to list format expected by template
+        dates = []
+        for date_str, stats in sorted(dates_dict.items(), reverse=True):
+            dates.append({
+                "date": date_str,
+                "total": stats["total"],
+                "present": stats["present"]
+            })
+        
         return render_template("attendance_dates.html", dates=dates)
-    except sqlite3.Error as e:
-        flash(f"Database error: {e}", "error")
+    except Exception as e:
+        flash("Error loading attendance dates.", "error")
         return render_template("attendance_dates.html", dates=[])
+
+# -------------------- REPORT --------------------
+
+@app.route("/report")
+@login_required
+def report():
+    try:
+        students = Student.query.all()
+        report_data = []
+
+        for s in students:
+            records = Attendance.query.filter_by(student_id=s.id).all()
+            total = len(records)
+            present = sum(1 for r in records if r.status == "present")
+            absent = total - present
+            percentage = round((present / total) * 100, 2) if total else 0
+
+            report_data.append({
+                "id": s.id,
+                "name": s.name,
+                "course": s.course,
+                "total_days": total,
+                "present_days": present,
+                "absent_days": absent,
+                "attendance_percentage": percentage
+            })
+
+        return render_template("report.html", report=report_data)
+    except Exception as e:
+        flash("Error generating report.", "error")
+        return render_template("report.html", report=[])
+
+# -------------------- LOGOUT --------------------
 
 @app.route("/logout")
 def logout():
     session.clear()
-    flash("Logged out successfully","success")
+    flash("Logged out successfully.", "success")
     return redirect("/")
+
+# -------------------- RUN --------------------
 
 if __name__ == "__main__":
     app.run(debug=True, use_reloader=False)
